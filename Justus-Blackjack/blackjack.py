@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
@@ -7,6 +8,17 @@ Blackjack simulation
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import sys
+
+
+def input_string(question=""):
+    """A function that works for both, Python 2.x and Python 3.x.
+       It asks the user for input and returns it as a string.
+    """
+    if sys.version_info[0] == 2:
+        return raw_input(question)
+    else:
+        return input(question)
 
 
 class IO(object):
@@ -16,9 +28,9 @@ class IO(object):
 
 class Text(IO):
     def bet(self, player):
-        response = raw_input(("%s, how much would you like to bet? "
-                              "You have %0.2f credits: ") %
-                             (player.name, player.credits))
+        response = input_string(("%s, how much would you like to bet? "
+                                 "You have %0.2f credits: ") %
+                                (player.name, player.credits))
         try:
             b = min(player.credits, int(response))
         except:
@@ -38,16 +50,16 @@ class Text(IO):
             print(s)
 
     def yes_no(self, player, s):
-        response = raw_input(player.name + ", " + s + " (Y/N): ")
+        response = input_string(player.name + ", " + s + " (Y/N): ")
         return (response == "y" or response == "Y")
 
     def continueplay(self):
-        response = raw_input("Do you want to continue playing? (Y/N): ")
+        response = input_string("Do you want to continue playing? (Y/N): ")
         return not(response == "n" or response == "N")
 
     def player(self):
-        response = raw_input("How many players do want to play? "
-                             "Please enter a number: ")
+        response = input_string("How many players do want to play? "
+                                "Please enter a number: ")
         try:
             b = max(1, int(response))
         except:
