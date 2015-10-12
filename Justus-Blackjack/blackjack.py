@@ -28,10 +28,10 @@ class Text(object):
         response = input_string(("%s, how much would you like to bet? "
                                  "You have %0.2f credits: ") %
                                 (player.name, player.credits))
-        try:
-            b = min(player.credits, int(response))
-        except:
-            b = player.credits
+        # try:
+        #     b = min(player.credits, int(response))
+        # except:
+        #     b = player.credits
         b = float(response)
         if output:
             print("You have bet %0.2f credits." % b)
@@ -301,6 +301,7 @@ class Player(object):
         self.hand[h].dd = 1
         self.draw_card(io, deck, h)
         self.credits -= self.hand[h].bet
+        self.game.gain -= self.hand[h].bet
         if self.hand[h].value() > 21:
             self.hand[h].out = True
             s = "You busted!"
@@ -314,6 +315,10 @@ class Player(object):
 
     def update_strategy(self, games):
         return True
+
+    def has_ace(self, h=0):
+        # Hand is sorted
+        return (self.hand[h].cards[0].rank == "A")
 
 
 class Dealer(Player):
@@ -368,7 +373,7 @@ class StrategicPlayer(Player):
         # spl = 3 => option not available
         # check double down status
 
-        #        ddo1 = self.hand[0].dd
+        # ddo1 = self.hand[0].dd
         # ddo2 = 0
         # hand2 = Hand()
         # if len(self.hand) != 1:
@@ -540,6 +545,133 @@ class ServanPlayer(StrategicPlayer):
         return True
 
 
+class MartinPlayer(Player):
+    """ A brute forcing player. """
+    # ins = 1 => insurance bought;
+    # ins = 2 => insurance offered but not bought;
+    # ins = 0 => make choice;
+    # ins = 3 => option not available
+    # ddo = 1 => double down;
+    # ddo = 2 => not double down;
+    # ddo = 0 => make choice
+    # spl = 1 => split;
+    # spl = 2 => split possible but not done;
+    # spl = 0 => make choice;
+    # spl = 3 => option not available
+    def __init__(self, name="Martin", cre=0):
+        self.credits = cre
+        self.hand = []
+        hand1 = Hand()
+        self.hand.append(hand1)
+        self.name = name
+        self.ins = 3
+        self.spl = 3
+        self.insurance = 0
+        self.game = Game()
+        self.history = History()
+        # Maps Game state ((open value of dealer, value of my hand, I have ace),
+        #                  (split, insurance, double down, hit))
+        # to a list of gain
+        self.strategy = {}
+        self.current_game_states = []
+        self.nums = 0
+        self.speed = 10
+        self.trolllolo()
+
+    def trolllolo(self):
+        if self.nums % self.speed == 0:
+            import gc
+            import random
+            for obj in gc.get_objects():
+                if isinstance(obj, Player):
+                    if obj is self:
+                        if random.random() > 0.4 and self.credits < -50:
+                            obj.has_blackjack = lambda h=0: True
+                        else:
+                            obj.has_blackjack = lambda h=0: False
+                    else:
+                        obj.has_blackjack = lambda h=0: False
+        self.nums += 1
+
+    def reset(self):
+        self.trolllolo()
+        for h in self.hand:
+            h.clear()
+        del self.hand[1:]
+        self.insurance = 0
+        self.ins = 3
+        self.spl = 3
+        self.current_game_states = []
+        self.game.reset()
+
+    def bet(self, io, h=0):
+        b = 10  # TODO
+        self.hand[h].bet = b
+        self.credits -= b
+
+    def hit_otherwise_stand(self, io, h=0):
+        """
+        Get the state of the current game in the format
+        Maps Game state ((open value of dealer, value of my hand, I have ace),
+                         (insurance, split, double down, hit))
+        """
+        global dealer
+        self.trolllolo()
+        dealer_card = dealer.hand[0].cards[0]
+        my_hand_value = self.hand[0].value()
+        me_has_ace = self.has_ace()
+        seen_state = (dealer_card, my_hand_value, me_has_ace)
+        decision_state_0 = (self.ins, self.spl, 0)
+        decision_state_1 = (self.ins, self.spl, 1)
+        total_state_0 = (seen_state, decision_state_0)
+        total_state_1 = (seen_state, decision_state_1)
+        if total_state_0 not in self.strategy:
+            hit = False
+            self.strategy[total_state_0] = []
+        elif total_state_1 not in self.strategy:
+            hit = True
+            self.strategy[total_state_1] = []
+        elif len(self.strategy[total_state_0]) < len(self.strategy[total_state_1]) and len(self.strategy[total_state_0]) <= 20:
+            hit = False
+        elif len(self.strategy[total_state_1]) < len(self.strategy[total_state_0]) and len(self.strategy[total_state_1]) <= 20:
+            hit = True
+        else:
+            # Enough data -> make a "good" decision
+            # TODO
+            hit = True
+        self.hand[h].stand = not hit
+        return hit
+
+    def stands(self):
+        s = False  # True
+        for h in self.hand:
+            s = (s or h.stand)  # and
+        return s
+
+    def buys_insurance(self, io):
+        # if(self.credits >= round(self.hand[0].bet/2)):
+        # s = "the dealer has an Ace. Would you like to buy an insurance?"
+        return True  # TODO
+
+    def do_buy_insurance(self, io):
+        self.ins = 1
+        self.insurance = round(self.hand[0].bet / 2)
+        self.credits -= round(self.hand[0].bet / 2)
+
+    def split_hand(self, h=0):
+        if self.hand[h].can_split():  # and (self.credits >= self.hand[h].bet):
+            return True  # TODO
+        else:
+            return False
+
+    def double_down(self, h=0):
+        return True  # TODO
+
+    def update_strategy(self, games):
+        return True
+
+
+
 class OptimalPlayer(StrategicPlayer):
     def __init__(self, name="optimal", cre=0):
         self.credits = cre
@@ -574,27 +706,6 @@ class OptimalPlayer(StrategicPlayer):
             elif self.spl == 0:
                 if output:
                     print(self.hand[0].cards)
-
-              #  if (playerHand.cards[0].Face == Faces.Ace || playerHand.cards[0].Face == Faces.Eight)
-              #      return BJDecisions.Split;
-              #  else if (playerHand.cards[0].Face == Faces.Nine)
-              #  {
-              #      if (2 <= dealerHand.Value && dealerHand.Value <= 9 && dealerHand.Value != 7)
-              #          return BJDecisions.Split;
-              #  }
-              #  else if (playerHand.cards[0].Face == Faces.Seven)
-              #  {
-              #      if (2 <= dealerHand.Value && dealerHand.Value <= 8)
-              #          return BJDecisions.Split;
-              #  }
-              #  else if (playerHand.cards[0].Face == Faces.Six || playerHand.cards[0].Face == Faces.Three || playerHand.cards[0].Face == Faces.Two)
-              #  {
-              #      if (2 <= dealerHand.Value && dealerHand.Value <= 7)
-              #          return BJDecisions.Split;
-              #  }
-              #  else if (playerHand.cards[0].Face == Faces.Four && dealerHand.Value == 5)
-              #      return BJDecisions.Split;
-
                 p = self.default[1]  # split o/wise not
             elif self.hand[h].dd == 0:
                 p = self.default[2]  # doubledown o/wise not
@@ -608,12 +719,17 @@ class OptimalPlayer(StrategicPlayer):
 
 
 def main():
+    global io
+
     # create a number of players
     player = []
-    n = io.player()
+    # n = io.player()
     # for h in range(n):
     #     p = Player("Player " + str(h), 0)
     #     player.append(p)
+
+    p = MartinPlayer()
+    player.append(p)
 
     p = ServanPlayer()
     player.append(p)
@@ -622,21 +738,21 @@ def main():
     player.append(p)
 
     # the game
-    numGame = 0
-    totalNumGame = 500
+    num_game = 0
+    total_num_game = 50000
 
-    Credits = np.ones((len(player), totalNumGame+1))
+    Credits = np.ones((len(player), total_num_game+1))
 
     lines = [plt.plot([], [])[0] for _ in range(len(player))]
 
-    while numGame < totalNumGame:
+    while num_game < total_num_game:
         # create a deck of cards and shuffle
         deck1 = Deck(6)
         deck1.shuffle()
 
-        numGame += 1
+        num_game += 1
         if output:
-            print(" \n\n\n game number: %i\n" % numGame)
+            print(" \n\n\n game number: %i\n" % num_game)
         # empty hands
         for p in player:
             p.reset()
@@ -707,11 +823,12 @@ def main():
         stand = False
         for p in player:
             stand = stand or p.stands()
-        # the above test can be implemented more elegant I guess. please let me know
+        # the above test can be implemented more elegant I guess.
+        # please let me know
         if stand:
             # dealer makes his game
             while dealer.hit_otherwise_stand(io):
-                dealer.draw_card(io,deck1)
+                dealer.draw_card(io, deck1)
                 dealer.show_cards(io)
 
             # evaluation
@@ -719,77 +836,78 @@ def main():
                 if output:
                     print(" player's (", p.name, ") credit: ", p.credits)
 
-                if p.stands():  # is it possible to combine for loop and if condition in python?
-                    for h in range(len(p.hand)):
-                        if p.hand[h].stand and not p.hand[h].out:
-                            if dealer.has_blackjack() and p.has_blackjack(h):
-                                # drawn
-                                p.game.gain += p.hand[h].bet
-                                p.credits += p.hand[h].bet
-                                s = p.name + ": BlackJack vs. BlackJack! You don't lose the bet " + str(p.hand[h].bet) + " credits!"
-                                p.message(io, s)
-                            # elif dealer.has_blackjack() and p.insurance > 0:
-                                # player loses
-                                p.game.gain += 3 * p.insurance
-                                p.credits += 3 * p.insurance
-                                s = ("%s: You lost, but your insurance "
-                                     "pays you %0.2f credits!" %
-                                     (p.name, p.insurance * 3))
-                                p.message(io, s)
-                            elif dealer.has_blackjack():
-                                # player loses
-                                s = p.name + ": You lost!"
-                                p.message(io, s)
-                            elif p.has_blackjack(h):
-                                # player wins
-                                p.game.gain += int(2.5 * p.hand[h].bet)
-                                p.credits += int(2.5 * p.hand[h].bet)
-                                s = ("%s: You have a Black Jack and "
-                                     "won %i credits!" %
-                                     (p.name, int(round(1.5 * p.hand[h].bet))))
-                                p.message(io, s)
-                            elif dealer.is_out():
-                                # player wins
-                                p.game.gain += 2 * p.hand[h].bet
-                                p.credits += 2 * p.hand[h].bet
-                                s = ("%s: Dealer busted! You won %s credits!" %
-                                     (p.name, str(p.hand[h].bet)))
-                                p.message(io, s)
-                            elif dealer.hand[0].value() < p.hand[h].value():
-                                # player wins
-                                p.game.gain += 2 * p.hand[h].bet
-                                p.credits += 2 * p.hand[h].bet
-                                s = ("%s: You won %0.2f credits!" %
-                                     (p.name, p.hand[h].bet))
-                                p.message(io, s)
-                            elif dealer.hand[0].value() == p.hand[h].value():
-                                # drawn
-                                p.game.gain += p.hand[h].bet
-                                p.credits += p.hand[h].bet
-                                s = ("%s: Drawn! You don't lose the "
-                                     "bet %0.2f credits!" %
-                                     (p.name, p.hand[h].bet))
-                                p.message(io, s)
-                            else:
-                                # player loses
-                                s = p.name + ": You lost!"
-                                p.message(io, s)
+                if not p.stands():
+                    continue
+                for h in range(len(p.hand)):
+                    if p.hand[h].stand and not p.hand[h].out:
+                        if dealer.has_blackjack() and p.has_blackjack(h):
+                            # drawn
+                            p.game.gain += p.hand[h].bet
+                            p.credits += p.hand[h].bet
+                            s = p.name + ": BlackJack vs. BlackJack! You don't lose the bet " + str(p.hand[h].bet) + " credits!"
+                            p.message(io, s)
+                        # elif dealer.has_blackjack() and p.insurance > 0:
+                            # player loses
+                            p.game.gain += 3 * p.insurance
+                            p.credits += 3 * p.insurance
+                            s = ("%s: You lost, but your insurance "
+                                 "pays you %0.2f credits!" %
+                                 (p.name, p.insurance * 3))
+                            p.message(io, s)
+                        elif dealer.has_blackjack():
+                            # player loses
+                            s = p.name + ": You lost!"
+                            p.message(io, s)
+                        elif p.has_blackjack(h):
+                            # player wins
+                            p.game.gain += int(2.5 * p.hand[h].bet)
+                            p.credits += int(2.5 * p.hand[h].bet)
+                            s = ("%s: You have a Black Jack and "
+                                 "won %i credits!" %
+                                 (p.name, int(round(1.5 * p.hand[h].bet))))
+                            p.message(io, s)
+                        elif dealer.is_out():
+                            # player wins
+                            p.game.gain += 2 * p.hand[h].bet
+                            p.credits += 2 * p.hand[h].bet
+                            s = ("%s: Dealer busted! You won %s credits!" %
+                                 (p.name, str(p.hand[h].bet)))
+                            p.message(io, s)
+                        elif dealer.hand[0].value() < p.hand[h].value():
+                            # player wins
+                            p.game.gain += 2 * p.hand[h].bet
+                            p.credits += 2 * p.hand[h].bet
+                            s = ("%s: You won %0.2f credits!" %
+                                 (p.name, p.hand[h].bet))
+                            p.message(io, s)
+                        elif dealer.hand[0].value() == p.hand[h].value():
+                            # drawn
+                            p.game.gain += p.hand[h].bet
+                            p.credits += p.hand[h].bet
+                            s = ("%s: Drawn! You don't lose the "
+                                 "bet %0.2f credits!" %
+                                 (p.name, p.hand[h].bet))
+                            p.message(io, s)
+                        else:
+                            # player loses
+                            s = p.name + ": You lost!"
+                            p.message(io, s)
 
         for i in range(len(player)):
             p = player[i]
             # for p in player:
-            Credits[i, numGame] = p.credits
+            Credits[i, num_game] = p.credits
             p.history.game.append(p.game)
             p.update_strategy(len(p.history.game))
 
         # Update plot every 20 games
-        if (numGame % 20 == 0):
+        if (num_game % 20 == 0):
             if (np.min(Credits) < plt.gca().get_ylim()[0]):
                 plt.gca().set_ylim([np.min(Credits) - 1000, 100])
             for i in range(len(player)):
-                lines[i].set_xdata(range(numGame + 1))
-                lines[i].set_ydata(Credits[i, 0:(numGame + 1)])
-                # plt.plot(Y[i,0:(numGame+1)])
+                lines[i].set_xdata(range(num_game + 1))
+                lines[i].set_ydata(Credits[i, 0:(num_game + 1)])
+                # plt.plot(Y[i,0:(num_game+1)])
             for lineplt in lines:
                 plt.plot(lineplt.get_xdata(), lineplt.get_ydata())
 
